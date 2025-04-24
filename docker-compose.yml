@@ -1,0 +1,59 @@
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+
+  kafka-setup:
+    image: confluentinc/cp-kafka:7.5.0
+    depends_on:
+      - kafka
+    command: >
+      bash -c "
+        echo 'Waiting for Kafka to be ready...'
+        cub kafka-ready -b kafka:9092 1 60
+        echo 'Creating topic orders...'
+        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic orders --partitions 1 --replication-factor 1
+        echo 'Topic created!'
+      "
+
+  producer:
+    build:
+      context: ./producer
+    depends_on:
+      - kafka-setup
+    environment:
+      - BOOTSTRAP_SERVERS=kafka:9092
+    command: sh -c "/wait-for-it.sh kafka:9092 -t 60 -- python producer.py"
+
+  consumer:
+    build:
+      context: ./consumer
+    depends_on:
+      - kafka-setup
+      - producer
+    environment:
+      - BOOTSTRAP_SERVERS=kafka:9092
+      - SNOWFLAKE_USER=NAUFILMOTEN
+      - SNOWFLAKE_PASSWORD=&3uTX!yT3tuMM6f
+      - SNOWFLAKE_ACCOUNT=FOJGCLD-LD14412
+    command: sh -c "/wait-for-it.sh kafka:9092 -t 60 -- python consumer.py"
